@@ -1,0 +1,21 @@
+FLYTOWN circuit data (circuit.bin, meta.json)
+
+License: Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)
+https://creativecommons.org/licenses/by-nc/4.0/
+
+This is a modified subset of the FlyWire connectome (FAFB, release v783). Changes: a subset of neurons was selected,
+synapse counts of the same neuron pair were summed over neuropils and pairs below 5 synapses were dropped, weights were
+rescaled and multiplied by calibration gains, and neurons were assigned to model classes. Neuron signs follow the
+predicted neurotransmitter (top_nt).
+
+Source data: FlyWire v783 proofread connections and annotations
+Zenodo: https://doi.org/10.5281/zenodo.10676866
+
+Please cite:
+- Dorkenwald et al. 2024. Neuronal wiring diagram of an adult brain. Nature.
+- Schlegel et al. 2024. Whole-brain annotation and multi-connectome cell typing of Drosophila. Nature.
+- Matsliah et al. 2024. Neuronal parts list and wiring diagram for a visual system. Nature.
+- Berg et al. 2026 (see docs/M0_inputs.md of the FLYTOWN repository).
+- Tastekin et al. 2026 (see docs/M0_inputs.md of the FLYTOWN repository).
+- Buhmann et al. 2021. Automatic detection of synaptic partners in a whole-brain Drosophila EM dataset. Nature Methods.
+- Eckstein et al. 2024. Neurotransmitter classification from electron microscopy images at synaptic sites in Drosophila melanogaster. Cell.

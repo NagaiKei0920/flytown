@@ -1,0 +1,14 @@
+{
+ "ch:sugar": 2.0,
+ "inh:out:FEED": 0.2,
+ "ch:bristle": 5.0,
+ "out:DNg11": 0.2,
+ "ch:wind": 0.2,
+ "out:MDN": 0.2,
+ "ch:lplc1": 0.2,
+ "ch:geosmin": 2.0,
+ "ch:co2": 2.0,
+ "ch:cold": 5.0,
+ "out:DNa02": 0.2,
+ "ch:vinegar": 2.0
+}

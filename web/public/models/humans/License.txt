@@ -1,0 +1,11 @@
+Ultimate Modular Men Pack / Ultimate Modular Women Pack
+by Quaternius (https://quaternius.com)
+https://quaternius.com/packs/ultimatemodularcharacters.html
+https://quaternius.com/packs/ultimatemodularwomen.html
+
+License: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Source of the glTF files used here: the pack's GLB export as served by
+https://quaternius.trebeljahr.com (a showcase that republishes the packs with
+the upstream CC0 license). Models were copied unchanged.

@@ -1,0 +1,24 @@
+{
+  "name": "flytown-web",
+  "private": true,
+  "version": "0.3.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "check:perf": "node scripts/check-perf.mjs",
+    "check:sim": "node scripts/sim-smoke.mjs",
+    "verify:parity": "node scripts/parity.mjs",
+    "check:behavior": "node scripts/check-behavior.mjs",
+    "bench:brain": "node scripts/bench-brain.mjs"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}
