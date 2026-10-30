@@ -26,6 +26,8 @@ export class CameraRig {
     this.controls.maxDistance = 420;
     this.controls.maxPolarAngle = Math.PI * 0.49;
     this.controls.screenSpacePanning = false;
+    // タッチ: 1 本指で回転、2 本指でピンチの拡大縮小とパン
+    this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
     this.controls.update();
   }
 

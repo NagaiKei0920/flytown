@@ -35,7 +35,6 @@ canvas { touch-action: none; }
 .seg { display: flex; background: rgba(0,0,0,0.06); border-radius: 14px; padding: 3px; }
 .seg button { flex-direction: row; font-size: 13px; font-weight: 600; padding: 7px 12px; }
 .seg button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
-.panel-toggle { display: none !important; }
 .panel { position: absolute; top: max(14px, env(safe-area-inset-top)); right: 14px; width: 292px; max-height: calc(100% - 120px); overflow: auto; border-radius: var(--r); padding: 12px 14px 14px; font-size: 12.5px; }
 .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
 .tabs button { flex: 1; border: 0; background: rgba(0,0,0,0.05); border-radius: 12px; padding: 7px; font: inherit; font-weight: 600; cursor: pointer; color: var(--ink2); }
@@ -110,16 +109,55 @@ canvas { touch-action: none; }
 .mfly.on { border-color: #fff; opacity: 1; box-shadow: 0 0 0 2px var(--c); }
 .mbest { color: var(--ink2); font-size: 12px; }
 .langrow { margin-bottom: 4px; }
+.langrow .seg button { border: 0; background: transparent; color: var(--ink); font: inherit; font-weight: 600; border-radius: 11px; cursor: pointer; }
+.langrow .seg button.on { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
 .langrow .seg button { flex: 1; padding: 6px 12px; }
-@media (max-width: 760px) {
-  .card { bottom: calc(86px + env(safe-area-inset-bottom)); }
-  .panel { top: auto; right: 10px; left: 10px; bottom: calc(86px + env(safe-area-inset-bottom)); width: auto; max-height: 42%; display: none; }
-  .panel.open { display: block; }
-  .panel-toggle { display: flex !important; }
-  .dev { top: auto; bottom: calc(150px + env(safe-area-inset-bottom)); max-width: calc(100% - 24px); }
+.sheet-clip { display: contents; }
+.sheet-clip > .panel { pointer-events: auto; }
+.sheet-handle { display: none; }
+.panel-body { display: block; }
+/* スマートフォン（幅 768 px 未満）: 脳パネルは下からのシート、操作の的は 44 px 以上 */
+@media (max-width: 767px) {
+  :root { --tb-h: calc(max(10px, env(safe-area-inset-bottom)) + 62px + 12px); }
+  html, body, #app { height: 100dvh; }
+  .hud { top: max(10px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); gap: 4px; }
+  .fps, .acc { display: none; }
+  .chips { gap: 6px; }
+  .chip { width: 44px; height: 44px; font-size: 16px; }
+  .toolbar { z-index: 3; left: 8px; right: 8px; transform: none; bottom: max(10px, env(safe-area-inset-bottom)); justify-content: space-between; gap: 2px; padding: 6px 8px; border-radius: 24px; }
+  .toolbar button { min-width: 44px; min-height: 44px; padding: 4px 8px; justify-content: center; }
   .toolbar button span { display: none; }
-  .toolbar { max-width: calc(100% - 20px); }
+  .toolbar .sep { height: 24px; }
+  .seg button { min-height: 44px; min-width: 44px; padding: 4px 8px; justify-content: center; }
+  .seg { padding: 2px; }
+  .card { bottom: var(--tb-h); width: calc(100% - 16px); max-height: calc(100dvh - var(--tb-h) - 90px); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
+  .card .seg button, .tabs button, .item, .rotbtn, .modepick button { min-height: 44px; }
+  .card .primary, .res-btns button, .run-stop { min-height: 44px; }
+  .mfly { width: 44px; height: 44px; }
+  .item { padding: 6px 12px; }
+  .run { top: calc(max(10px, env(safe-area-inset-top)) + 54px); max-width: calc(100% - 16px); padding: 4px 4px 4px 14px; gap: 8px; font-size: 12.5px; }
+  .dev { top: auto; bottom: calc(var(--tb-h) + 70px); max-width: calc(100% - 24px); }
+  .toast { bottom: calc(var(--tb-h) + 70px); max-width: calc(100% - 24px); text-align: center; }
+  .result { width: calc(100% - 24px); }
+  /* シート: 閉じているときはハンドルだけ見える。--sheet-drag はドラッグ中の位置 */
+  .sheet-clip { display: block; position: absolute; left: 8px; right: 8px; bottom: var(--tb-h); height: min(60dvh, calc(100dvh - var(--tb-h) - 76px)); overflow: hidden; pointer-events: none; }
+  .panel { top: auto; left: 0; right: 0; width: auto; bottom: 0; height: 100%; max-height: none; overflow: hidden; padding: 0; display: flex; flex-direction: column; border-radius: 22px 22px 18px 18px;
+    transform: translateY(var(--sheet-drag, calc(100% - 52px))); transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1); touch-action: none; }
+  .panel.open { transform: translateY(var(--sheet-drag, 0px)); }
+  .panel.dragging { transition: none; }
+  .card-open .sheet-clip { visibility: hidden; }
+  .sheet-handle { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; flex: none; height: 52px; cursor: pointer; touch-action: none; }
+  .grip { width: 38px; height: 5px; border-radius: 3px; background: rgba(120, 130, 145, 0.5); }
+  .sheet-sum { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: pre; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; }
+  .panel-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 2px 14px 14px; -webkit-overflow-scrolling: touch; }
+  .panel label { min-height: 44px; }
+  .panel input[type="checkbox"] { width: 22px; height: 22px; }
+  .sel { display: none; }
+  .wslide input { min-height: 44px; }
+  .compass { width: 64px; height: 64px; }
+  .loading-t { font-size: 20px; }
 }
+@media (hover: none) and (pointer: coarse) { .toolbar button, .chip, .item { cursor: default; } }
 @media (prefers-color-scheme: dark) {
   :root { --glass: rgba(34, 40, 50, 0.6); --glass-b: rgba(255,255,255,0.12); --ink: #e8eef5; --ink2: #9bacbd; }
   .seg button.on, .tabs button.on, .card .seg button.on { background: rgba(255,255,255,0.18); }

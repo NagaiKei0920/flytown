@@ -12,13 +12,15 @@ export interface Stage {
   setPixelRatio(r: number): void;
 }
 
-export function createStage(parent: HTMLElement): Stage {
+export interface StageOptions { dprCap?: number; shadowMap?: number }
+
+export function createStage(parent: HTMLElement, opts: StageOptions = {}): Stage {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, opts.dprCap ?? 2));
   renderer.setSize(parent.clientWidth, parent.clientHeight);
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.toneMappingExposure = 1.0;
-  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.enabled = (opts.shadowMap ?? 2048) > 0;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.domElement.style.display = 'block';
   parent.appendChild(renderer.domElement);
@@ -33,8 +35,8 @@ export function createStage(parent: HTMLElement): Stage {
 
   scene.add(new THREE.HemisphereLight(0xdbeaff, 0xf3e7d7, 0.85));
   const sun = new THREE.DirectionalLight(0xfff0dc, 2.3);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.castShadow = (opts.shadowMap ?? 2048) > 0;
+  sun.shadow.mapSize.set(opts.shadowMap ?? 2048, opts.shadowMap ?? 2048);
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.06;
   scene.add(sun, sun.target);

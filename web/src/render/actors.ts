@@ -120,13 +120,13 @@ export class Actors {
   }
 
   /** 画面のレイに最も近いハエ人の番号。無ければ -1。 */
-  pick(ray: THREE.Ray): number {
+  pick(ray: THREE.Ray, radius = 1.0): number {
     let best = -1;
     let bd = Infinity;
     const s = new THREE.Sphere();
     const p = new THREE.Vector3();
     this.sim.flies.forEach((f, i) => {
-      s.set(new THREE.Vector3(f.x, f.y + 0.85, f.z), 1.0);
+      s.set(new THREE.Vector3(f.x, f.y + 0.85, f.z), radius);
       if (ray.intersectSphere(s, p)) {
         const d = p.distanceTo(ray.origin);
         if (d < bd) { bd = d; best = i; }

@@ -7,6 +7,9 @@ import type { ModeId, RunResult, RunStats } from '../sim/modes.ts';
 import { MODE_IDS, MODE_LIMIT, loadBest, splitZapScore } from '../sim/modes.ts';
 import type { Key, Lang } from './i18n.ts';
 import { getLang, setLang, t } from './i18n.ts';
+import type { PerfPref, ProfileName } from './device.ts';
+
+export interface UiInit { perf: PerfPref; profile: ProfileName; hiRes: boolean }
 
 export type Tool = 'none' | 'syringe' | 'place' | 'mode';
 
@@ -16,6 +19,7 @@ export interface UiHandlers {
   onEye(on: boolean): void;
   onShadows(on: boolean): void;
   onHiRes(on: boolean): void;
+  onPerf(p: PerfPref): void;
   onDebug(on: boolean): void;
   onManual(on: boolean): void;
   onTool(t: Tool): void;
@@ -98,7 +102,9 @@ export class Ui {
   private lastRun: { stats: RunStats; mode: ModeId } | null = null;
 
   private flies: FlyPerson[];
+  private init: UiInit;
   private h: UiHandlers;
+  private sheetSummary!: HTMLElement;
   private tool: Tool = 'none';
   private kind: DopamineKind = 'reward';
   private dose: 1 | 2 | 3 = 2;
@@ -112,7 +118,8 @@ export class Ui {
   private histPam: number[] = [];
   private histPpl: number[] = [];
 
-  constructor(parent: HTMLElement, flies: FlyPerson[], h: UiHandlers) {
+  constructor(parent: HTMLElement, flies: FlyPerson[], init: UiInit, h: UiHandlers) {
+    this.init = init;
     this.flies = flies;
     this.h = h;
     this.root = document.createElement('div');
@@ -180,9 +187,10 @@ export class Ui {
         </div>
         <i class="sep"></i>
         <button data-act="eye">${SVG.eye}<span data-i18n="tool.eye"></span></button>
-        <button data-act="panel" class="panel-toggle"><span data-i18n="tool.panel"></span></button>
       </nav>
-      <aside class="panel glass">
+      <div class="sheet-clip"><aside class="panel glass">
+        <div class="sheet-handle" role="button" tabindex="0" data-i18n-aria="sheet.toggle"><i class="grip"></i><span class="sheet-sum"></span></div>
+        <div class="panel-body">
         <div class="tabs"><button data-tab="brain" class="on" data-i18n="tab.brain"></button><button data-tab="settings" data-i18n="tab.settings"></button></div>
         <section data-pane="brain">
           <div class="sel"></div>
@@ -206,14 +214,19 @@ export class Ui {
           <div class="row langrow"><span class="lbl" data-i18n="set.language"></span>
             <div class="seg" data-group="lang"><button data-lang="ja">日本語</button><button data-lang="en">English</button></div>
           </div>
+          <div class="row langrow"><span class="lbl" data-i18n="set.perf"></span>
+            <div class="seg" data-group="perf"><button data-perf="auto" data-i18n="perf.auto"></button><button data-perf="phone" data-i18n="perf.phone"></button><button data-perf="full" data-i18n="perf.full"></button></div>
+          </div>
+          <p class="note perf-note"></p>
           <label><input type="checkbox" data-set="shadows" checked /> <span data-i18n="set.shadows"></span></label>
-          <label><input type="checkbox" data-set="hires" /> <span data-i18n="set.hires"></span></label>
+          <label><input type="checkbox" data-set="hires" ${init.hiRes ? 'checked' : ''} /> <span data-i18n="set.hires"></span></label>
           <label><input type="checkbox" data-set="debug" /> <span data-i18n="set.debug"></span></label>
           <label><input type="checkbox" data-set="plume" /> <span data-i18n="set.plume"></span></label>
           <label><input type="checkbox" data-set="manual" /> <span data-i18n="set.manual"></span></label>
           <p class="note" data-i18n="set.manualNote"></p>
         </section>
-      </aside>`;
+        </div>
+      </aside></div>`;
     parent.appendChild(this.root);
     const q = <T extends HTMLElement>(s: string) => this.root.querySelector(s) as T;
     this.fpsEl = q('.fps');
@@ -223,6 +236,7 @@ export class Ui {
     this.selEl = q('.sel');
     this.devBadge = q('.dev');
     this.panel = q('.panel');
+    this.sheetSummary = q('.sheet-sum');
     this.loading = q('.loading');
     this.eyeBtn = q('[data-act="eye"]');
     this.card = q('.card');
@@ -306,7 +320,6 @@ export class Ui {
         else if (a === 'place') this.setTool(this.tool === 'place' ? 'none' : 'place');
         else if (a === 'mode') this.setTool(this.tool === 'mode' ? 'none' : 'mode');
         else if (a === 'eye') h.onEye(!b.classList.contains('on'));
-        else if (a === 'panel') this.panel.classList.toggle('open');
       };
     });
     this.root.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
@@ -322,6 +335,10 @@ export class Ui {
         h.onLang(b.dataset.lang as Lang);
       };
     });
+    this.root.querySelectorAll<HTMLButtonElement>('[data-perf]').forEach((b) => {
+      b.onclick = () => { if (b.dataset.perf !== this.init.perf) h.onPerf(b.dataset.perf as PerfPref); };
+    });
+    this.initSheet();
     this.initModeCard();
     this.runEl.querySelector<HTMLButtonElement>('[data-run-stop]')!.onclick = () => h.onModeCancel();
     this.resEl.querySelector<HTMLButtonElement>('[data-res-retry]')!.onclick = () => {
@@ -393,6 +410,55 @@ export class Ui {
     this.applyLang();
   }
 
+  // ------------------------------------------------------------ 脳パネル（スマートフォンでは下からのシート）
+
+  private sheetOpen = false;
+
+  /** ハンドルのタップで開閉、ドラッグで追従して近い方へ止まる。幅 768 px 以上では CSS がシートを使わない。 */
+  private initSheet(): void {
+    const handle = this.root.querySelector<HTMLElement>('.sheet-handle')!;
+    const panel = this.panel;
+    const closedOffset = (): number => Math.max(0, panel.offsetHeight - handle.offsetHeight);
+    const apply = (open: boolean): void => {
+      this.sheetOpen = open;
+      panel.classList.toggle('open', open);
+      panel.style.removeProperty('--sheet-drag');
+    };
+    let drag: { id: number; y0: number; base: number; moved: boolean; t0: number } | null = null;
+    handle.addEventListener('pointerdown', (e) => {
+      handle.setPointerCapture(e.pointerId);
+      drag = { id: e.pointerId, y0: e.clientY, base: this.sheetOpen ? 0 : closedOffset(), moved: false, t0: performance.now() };
+      panel.classList.add('dragging');
+    });
+    handle.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dy = e.clientY - drag.y0;
+      if (Math.abs(dy) > 6) drag.moved = true;
+      const off = Math.min(closedOffset(), Math.max(0, drag.base + dy));
+      panel.style.setProperty('--sheet-drag', `${off}px`);
+    });
+    const end = (e: PointerEvent): void => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const d = drag;
+      drag = null;
+      panel.classList.remove('dragging');
+      if (!d.moved) { apply(!this.sheetOpen); return; }
+      const dy = e.clientY - d.y0;
+      const v = dy / Math.max(1, performance.now() - d.t0); // px/ms
+      const off = Math.min(closedOffset(), Math.max(0, d.base + dy));
+      apply(Math.abs(v) > 0.4 ? v < 0 : off < closedOffset() / 2);
+    };
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+    handle.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') apply(!this.sheetOpen); });
+  }
+
+  /** ツールのカードを開いたときなど、シートを閉じる。 */
+  collapseSheet(): void {
+    this.sheetOpen = false;
+    this.panel.classList.remove('open');
+  }
+
   // ------------------------------------------------------------ 言語
 
   /** data-i18n を持つ要素と、動的に作った文字列を、現在の言語で書き直す。 */
@@ -401,10 +467,14 @@ export class Ui {
     this.root.querySelectorAll<HTMLElement>('[data-i18n-aria]').forEach((e) => e.setAttribute('aria-label', t(e.dataset.i18nAria as Key)));
     this.root.querySelectorAll<HTMLElement>('.cup').forEach((e) => (e.textContent = t('compass.up')));
     const lang = getLang();
+    this.root.querySelectorAll<HTMLElement>('[data-perf]').forEach((e) => e.classList.toggle('on', e.dataset.perf === this.init.perf));
+    const pn = this.root.querySelector<HTMLElement>('.perf-note');
+    if (pn) pn.textContent = t('set.perfNote', { now: this.init.profile });
     this.root.querySelectorAll<HTMLElement>('[data-lang]').forEach((e) => e.classList.toggle('on', e.dataset.lang === lang));
     this.chips.forEach((c, i) => (c.title = this.flyName(i)));
     this.rotBtn.textContent = t('place.deg', { n: this.rotDeg });
     this.selEl.textContent = this.sel >= 0 ? this.flyName(this.sel) : t('select.hint');
+    this.sheetSummary.textContent = this.selEl.textContent;
     this.updateInjectBtn();
     this.drawWind();
     this.renderModeCard();
@@ -537,10 +607,12 @@ export class Ui {
     this.tool = t;
     this.toolBtns.forEach((b) => b.classList.toggle('on', b.dataset.act === t));
     this.card.hidden = t === 'none';
+    this.root.classList.toggle('card-open', t !== 'none');
     this.syringeCard.hidden = t !== 'syringe';
     this.placeCard.hidden = t !== 'place';
     this.modeCard.hidden = t !== 'mode';
     if (t === 'mode') this.renderModeCard();
+    if (t !== 'none') this.collapseSheet();
     this.h.onTool(t);
     this.updateInjectBtn();
   }
@@ -626,6 +698,7 @@ export class Ui {
     this.sel = i;
     this.chips.forEach((c, k) => c.classList.toggle('on', k === i));
     this.selEl.textContent = i >= 0 ? this.flyName(i) : t('select.hint');
+    this.sheetSummary.textContent = i >= 0 ? this.flyName(i) : t('select.hint');
     if (i >= 0 && !this.running) this.pickFly = i;
     this.histPam = [];
     this.histPpl = [];
@@ -640,6 +713,7 @@ export class Ui {
     const c = f.cmd;
     const vals = [(c.forward + 1) / 2, (c.turn + 1) / 2, c.flap, c.groom, c.feed];
     vals.forEach((v, i) => (this.cmdBars[i].style.width = `${Math.round(v * 100)}%`));
+    this.sheetSummary.textContent = `${this.flyName(sel)}  ${t('sheet.fwd', { n: Math.round(vals[0] * 100) })}  ${t('sheet.flap', { n: Math.round(c.flap * 100) })}`;
 
     // 脳
     const act = bv?.activity ?? {};

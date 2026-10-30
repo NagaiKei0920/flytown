@@ -19,3 +19,7 @@
 ## 2026-10-30 M1 ラウンド 2 回路抽出・較正・応答表（pipeline.build）
 - 内容: N=18697（TONIC 1 細胞を含む）、E=405893、調整前 2/12、調整後 3/12（ゲート 9: 不合格）、学習効果 +0.2125（dA - dB、20 シード）、numpy 1.31 ms/ステップ。
 - 詳細: docs/reports/m1.md、m1_response_table.md。未検証: MBON 価値の割り当て、摂食 MN と MN9 の対応、DNa01 の同定、P9 = DNp09、停止 DN。一致: verify:parity 最大誤差 7.3e-12、verify_export 6.7e-16、check-brain PASS。ラウンド 1（5/12）より悪化。
+
+## 2026-10-30 羽ばたき過多の修正（迫る物の符号化）とスマートフォン対応
+- 内容: 原因は lplc2・lc4 入力（旧式 sat(接近速度 / 距離)）が静止した壁・建物で常時立つこと。静かな時の羽ばたき > 0.5 は 27.9% -> 1.3%（20 シード、ハエ人 4 体 x 60 s）。車の逃避 85%（17/20、対照 0%。旧 90% / 35%）。check-brain CHECK PASS、build / check:sim / verify:parity 合格。
+- 詳細: docs/reports/mobile_flap.md、m5_behavior.md、MODEL.md 8 章。未検証: iPhone 実機の fps・タッチ操作、車の逃避の事故率は旧 12/20 -> 13/20 で改善していない。

@@ -14,6 +14,7 @@ export class Perf {
   draws = 0;
   tris = 0;
   onUpdate: (() => void) | null = null;
+  profile = 'full';
 
   private renderer: THREE.WebGLRenderer;
   private info: () => Record<string, number>;
@@ -48,7 +49,7 @@ export class Perf {
       this.lastLog = now;
       const extra = this.info();
       console.log(
-        `[flytown:perf] fps=${this.fps.toFixed(1)} avg_ms=${this.avgMs.toFixed(2)} p95_ms=${this.p95Ms.toFixed(2)} max_ms=${this.maxMs.toFixed(1)} draws=${this.draws} tris=${this.tris} ` +
+        `[flytown:perf] profile=${this.profile} dpr=${this.renderer.getPixelRatio()} fps=${this.fps.toFixed(1)} avg_ms=${this.avgMs.toFixed(2)} p95_ms=${this.p95Ms.toFixed(2)} max_ms=${this.maxMs.toFixed(1)} draws=${this.draws} tris=${this.tris} ` +
           Object.entries(extra).map(([k, v]) => `${k}=${typeof v === 'number' ? +v.toFixed(2) : v}`).join(' '),
       );
     }

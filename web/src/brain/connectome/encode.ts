@@ -3,7 +3,7 @@
  * 出力は Float32Array[2 * CHANNEL_NAMES.length]、チャネル c の左が [2c]、右が [2c+1]。
  * 雑音（MODEL.md 4 章）は感覚ニューロンごとに必要なので、ここではなく batch.ts が加える。
  */
-import type { SensorFrame } from '../../sim/sensors.ts';
+import type { EyeSensors, SensorFrame } from '../../sim/sensors.ts';
 
 /** meta.input.channels の並び（回路を作り直して並びが変わったら batch.ts の起動時検査で落ちる）。 */
 export const CHANNEL_NAMES = [
@@ -16,9 +16,13 @@ export const STIM_LEN = CHANNEL_NAMES.length * 2;
 
 /** 調整できる定数。意味は MODEL.md 8 章。 */
 export const ENCODE = {
-  /** looming (1/s) の飽和: s = 1 - exp(-looming / L0)。LPLC2 は L0 = 1、LC4 は小さな速い拡大に敏感として L0 = 2。 */
-  loomLplc2: 1.0,
-  loomLc4: 2.0,
+  /**
+   * 迫る物（LPLC2・LC4）: 像の拡大 x = g(size) * expansion（rad/s、レイごと、片目で最大）に、しきい値のある S 字 s = x^n / (x^n + K^n)。
+   * g(size) = 1 / (1 + (size / sizeC)^4)。size = 当たった物の見かけの角度（度）。視野を埋める壁・建物は g が 0 に近く、小さな物だけ通す。
+   * LPLC2 は中くらいの物の拡大（sizeC 45 度、K 0.25 rad/s）、LC4 は小さく速い拡大（sizeC 25 度、K 0.4 rad/s）。
+   */
+  loomLplc2: { sizeC: 45, K: 0.25, n: 2 },
+  loomLc4: { sizeC: 25, K: 0.4, n: 2 },
   /** 単眼: s = min(1, max(0, 明るさ - 自分の平均) / ocellarFull)。平均は時定数 ocellarTau 秒の移動平均（順応）。 */
   ocellarFull: 1.0,
   ocellarTau: 5.0,
@@ -35,7 +39,21 @@ export class EncodeState {
 }
 
 const sat01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
-const sat = (x: number, l0: number) => (x <= 0 ? 0 : 1 - Math.exp(-x / l0));
+
+const RAD2DEG = 180 / Math.PI;
+/** 片目の 12 本のレイから、拡大の駆動 s = hill(max_i g(size_i) * expansion_i) を作る。 */
+function loomDrive(eye: EyeSensors, p: { sizeC: number; K: number; n: number }): number {
+  let m = 0;
+  for (const r of eye.rays) {
+    if (r.expansion <= 0) continue;
+    const q = (r.size * RAD2DEG) / p.sizeC;
+    const x = r.expansion / (1 + q * q * q * q);
+    if (x > m) m = x;
+  }
+  if (m <= 0) return 0;
+  const a = Math.pow(m, p.n);
+  return a / (a + Math.pow(p.K, p.n));
+}
 
 function set(out: Float32Array, ch: ChannelName, l: number, r: number): void {
   const c = CHANNEL_INDEX[ch] * 2;
@@ -92,8 +110,8 @@ export function encodeSensors(f: SensorFrame, out: Float32Array, st?: EncodeStat
   const oc = (b: number, a: number) => Math.max(0, b - a) / ENCODE.ocellarFull;
   set(out, 'ocellar', oc(f.light.left, aL), oc(f.light.right, aR));
   // 迫る物
-  set(out, 'lplc2', sat(f.left.loomingMax, ENCODE.loomLplc2), sat(f.right.loomingMax, ENCODE.loomLplc2));
-  set(out, 'lc4', sat(f.left.loomingMax, ENCODE.loomLc4), sat(f.right.loomingMax, ENCODE.loomLc4));
+  set(out, 'lplc2', loomDrive(f.left, ENCODE.loomLplc2), loomDrive(f.right, ENCODE.loomLplc2));
+  set(out, 'lc4', loomDrive(f.left, ENCODE.loomLc4), loomDrive(f.right, ENCODE.loomLc4));
   // 障害物の多さ: 左目は左 + 前、右目は右 + 前の平均
   const o = f.obstacle;
   set(out, 'lplc1', 0.5 * (o.left + o.front), 0.5 * (o.right + o.front));

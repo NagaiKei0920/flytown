@@ -95,32 +95,48 @@ export function computeSensors(ctx: SenseContext, fp: FlyPerson): SensorFrame {
       let kind: HitKind = HitKind.None;
       let tvx = 0;
       let tvz = 0;
+      let width = 0;
       const hs = world.raycast(ex, ez, dx, dz, R, eyeY, slope);
-      if (hs) { best = hs.t; kind = HitKind.Static; }
+      if (hs) {
+        best = hs.t; kind = HitKind.Static;
+        const c = hs.collider;
+        width = c.shape === 'circle' ? 2 * c.r : 2 * (c.hx * Math.abs(dz) + c.hz * Math.abs(dx));
+      }
       for (const c of nearCars) {
         const t = rayObb(ex, ez, dx, dz, c);
         if (t < 0 || t >= best) continue;
         const y = eyeY + slope * t;
         if (y < 0 || y > CAR_HEIGHT) continue;
         best = t; kind = HitKind.Car; tvx = c.vx; tvz = c.vz;
+        // 車の輪郭の、視線に直交する向きの幅
+        const sn = Math.sin(c.yaw);
+        const cs = Math.cos(c.yaw);
+        width = 2 * (CAR_HALF_LEN * Math.abs(dx * cs - dz * sn) + CAR_HALF_WID * Math.abs(dx * sn + dz * cs));
       }
       for (const m of nearNpcs) {
         const t = rayCircle(ex, ez, dx, dz, m.x, m.z, 0.3);
         if (t < 0 || t >= best) continue;
         const y = eyeY + slope * t;
         if (y < 0 || y > 1.8) continue;
-        best = t; kind = HitKind.Person; tvx = m.vx; tvz = m.vz;
+        best = t; kind = HitKind.Person; tvx = m.vx; tvz = m.vz; width = 0.6;
       }
       for (const o of nearFlies) {
         const t = rayCircle(ex, ez, dx, dz, o.x, o.z, 0.3);
         if (t < 0 || t >= best) continue;
         const y = eyeY + slope * t;
         if (y < o.y || y > o.y + 1.8) continue;
-        best = t; kind = HitKind.FlyPerson; tvx = o.vx; tvz = o.vz;
+        best = t; kind = HitKind.FlyPerson; tvx = o.vx; tvz = o.vz; width = 0.6;
       }
       const approach = kind === HitKind.None ? 0 : (fp.vx - tvx) * dx + (fp.vz - tvz) * dz;
       const looming = kind === HitKind.None ? 0 : Math.max(0, approach) / Math.max(best, 0.5);
-      rays.push({ azimuth: az, distance: best, approach, looming, kind });
+      let size = 0;
+      let expansion = 0;
+      if (kind !== HitKind.None) {
+        const d = Math.max(best, 0.3);
+        size = 2 * Math.atan(width / (2 * d));
+        expansion = approach > 0 ? (width * approach) / (d * d + (width * width) / 4) : 0;
+      } else width = 0;
+      rays.push({ azimuth: az, distance: best, approach, looming, kind, width, size, expansion });
       lmax = Math.max(lmax, looming);
       lsum += looming;
       nearest = Math.min(nearest, best);

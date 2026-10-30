@@ -19,6 +19,8 @@ import type { ItemKind } from './sim/items.ts';
 import type { BrainView, Tool } from './ui/ui.ts';
 import { Ui } from './ui/ui.ts';
 import { Perf } from './ui/perf.ts';
+import { detectProfile, loadPerfPref, savePerfPref } from './ui/device.ts';
+import type { PerfPref } from './ui/device.ts';
 import { t } from './ui/i18n.ts';
 import { ModeController } from './sim/modes.ts';
 
@@ -28,19 +30,23 @@ window.addEventListener('unhandledrejection', (e) => console.error('[flytown:err
 async function boot(): Promise<void> {
   const app = document.getElementById('app')!;
   const params = new URLSearchParams(location.search);
-  const flyCount = Number(params.get('flies') ?? 4);
+  // 端末の性能プロファイル（スマートフォン・低スペック機は軽くする）。URL の flies / npcs / cars があればそちらが優先。
+  const prof = detectProfile();
+  console.log(`[flytown:perf] profile=${prof.name} (${prof.reason}) flies=${prof.flies} npcs=${prof.npcs} cars=${prof.cars} dprCap=${prof.dprCap} shadowMap=${prof.shadowMap} workers=${prof.workers} cores=${prof.cores}`);
+  document.documentElement.classList.toggle('phone', prof.name === 'phone');
+  const flyCount = Number(params.get('flies') ?? prof.flies);
   // 脳: FlyWire 回路を Worker で動かす。?brain=off で無効（指令 0）。
-  const hub = params.get('brain') === 'off' ? null : new ConnectomeHub(flyCount, { baseUrl: new URL(import.meta.env.BASE_URL, location.href).href, seed: 1 });
+  const hub = params.get('brain') === 'off' ? null : new ConnectomeHub(flyCount, { baseUrl: new URL(import.meta.env.BASE_URL, location.href).href, seed: 1, workers: prof.workers });
   const sim = new Sim({
     seed: Number(params.get('seed') ?? 20261029),
     flyCount,
     brainFactory: (i) => hub?.brains[i] ?? null,
-    npcCount: Number(params.get('npcs') ?? 20),
-    carCount: Number(params.get('cars') ?? 15),
+    npcCount: Number(params.get('npcs') ?? prof.npcs),
+    carCount: Number(params.get('cars') ?? prof.cars),
   });
   console.log(`[flytown] sim: flies=${sim.flies.length} npcs=${sim.npcs.length} cars=${sim.cars.length} colliders=${sim.world.colliders.length}`);
 
-  const stage = createStage(app);
+  const stage = createStage(app, { dprCap: prof.dprCap, shadowMap: prof.shadowMap });
   const gl = stage.renderer.getContext();
   console.log(`[flytown] webgl2=${stage.renderer.capabilities.isWebGL2} maxTex=${gl.getParameter(gl.MAX_TEXTURE_SIZE)}`);
 
@@ -55,12 +61,13 @@ async function boot(): Promise<void> {
   let eyeOn = false;
   const manual = new ManualBrain();
 
-  const ui: Ui = new Ui(app, sim.flies, {
+  const ui: Ui = new Ui(app, sim.flies, { perf: loadPerfPref(), profile: prof.name, hiRes: prof.dprCap >= 2 }, {
     onSelect: (i) => select(i),
     onTimeScale: (s) => (timeScale = s),
     onEye: (on) => setEye(on),
     onShadows: (on) => { stage.setShadows(on); town?.setShadows(on); actors?.setShadows(on); items?.setShadows(on); },
-    onHiRes: (on) => stage.setPixelRatio(on ? Math.min(window.devicePixelRatio, 2) : 1),
+    onHiRes: (on) => stage.setPixelRatio(Math.min(window.devicePixelRatio, on ? 2 : 1.5)),
+    onPerf: (p: PerfPref) => { savePerfPref(p); location.reload(); },
     onDebug: (on) => (debugOn = on),
     onManual: (on) => { manualOn = on; applyManual(); },
     onTool: (t) => { tool = t; if (t !== 'place') items?.setCursor(0, 0, null); },
@@ -168,20 +175,45 @@ async function boot(): Promise<void> {
   // クリックで選択（ドラッグは無視）
   const dom = stage.renderer.domElement;
   let down: { x: number; y: number; t: number } | null = null;
-  dom.addEventListener('pointerdown', (e) => (down = { x: e.clientX, y: e.clientY, t: performance.now() }));
+  const activePtrs = new Set<number>();
+  let multi = false; // 2 本指以上の操作（ピンチ・パン）だった。離したときに選択・設置をしない
+  const placeCursor = (e: PointerEvent): void => {
+    if (tool !== 'place' || !sim.town || !items) return;
+    const p = groundPt(e);
+    if (!p) return;
+    if (placeMode === 'add') items.setCursor(p.x, p.z, sim.town.world.isBlocked(p.x, p.z, 0.3) || Math.abs(p.x) > 146 || Math.abs(p.z) > 146 ? 'bad' : 'add');
+    else {
+      const it = sim.town.nearestItem(p.x, p.z, Math.max(1.2, cam.camera.position.distanceTo(p) * 0.03));
+      items.setCursor(it ? it.x : p.x, it ? it.z : p.z, it ? 'remove' : 'bad');
+    }
+  };
+  dom.addEventListener('pointerdown', (e) => {
+    activePtrs.add(e.pointerId);
+    if (activePtrs.size > 1) multi = true;
+    down = { x: e.clientX, y: e.clientY, t: performance.now() };
+    if (e.pointerType === 'touch') placeCursor(e); // タッチは hover が無いので、触れた位置に置く場所を見せる
+  });
+  const pointerEnd = (e: PointerEvent): void => {
+    activePtrs.delete(e.pointerId);
+    if (activePtrs.size === 0) multi = false;
+  };
+  dom.addEventListener('pointercancel', (e) => { pointerEnd(e); down = null; });
   dom.addEventListener('pointerup', (e) => {
+    const wasMulti = multi;
+    pointerEnd(e);
     if (!down) return;
     const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
     const dt = performance.now() - down.t;
     down = null;
-    if (moved > 6 || dt > 400 || eyeOn) return;
+    const touch = e.pointerType === 'touch';
+    if (wasMulti || moved > (touch ? 12 : 6) || dt > 400 || eyeOn) return;
     if (tool === 'place' && sim.town) {
       const p = groundPt(e);
       if (!p) return;
       if (placeMode === 'add') {
         if (!sim.town.addItem(placeKind, p.x, p.z, placeRot)) ui.showToast(t('place.bad'));
       } else {
-        const it = sim.town.nearestItem(p.x, p.z, Math.max(1.2, cam.camera.position.distanceTo(p) * 0.03));
+        const it = sim.town.nearestItem(p.x, p.z, Math.max(1.2, cam.camera.position.distanceTo(p) * (touch ? 0.05 : 0.03)));
         if (it) sim.town.removeItem(it.id);
         else ui.showToast(t('place.none'));
       }
@@ -191,19 +223,11 @@ async function boot(): Promise<void> {
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -(((e.clientY - r.top) / r.height) * 2 - 1));
     const rc = new THREE.Raycaster();
     rc.setFromCamera(ndc, cam.camera);
-    const hit = actors.pick(rc.ray);
+    const hit = actors.pick(rc.ray, touch ? 1.8 : 1.0);
     if (hit >= 0) select(hit);
+    else if (touch && selected >= 0) select(-1); // タッチにはダブルクリックが無いので、何も無い所をタップで選択を外す
   });
-  dom.addEventListener('pointermove', (e) => {
-    if (tool !== 'place' || !sim.town || !items) return;
-    const p = groundPt(e);
-    if (!p) return;
-    if (placeMode === 'add') items.setCursor(p.x, p.z, sim.town.world.isBlocked(p.x, p.z, 0.3) || Math.abs(p.x) > 146 || Math.abs(p.z) > 146 ? 'bad' : 'add');
-    else {
-      const it = sim.town.nearestItem(p.x, p.z, Math.max(1.2, cam.camera.position.distanceTo(p) * 0.03));
-      items.setCursor(it ? it.x : p.x, it ? it.z : p.z, it ? 'remove' : 'bad');
-    }
-  });
+  dom.addEventListener('pointermove', (e) => placeCursor(e));
   dom.addEventListener('dblclick', (e) => {
     const r = dom.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -(((e.clientY - r.top) / r.height) * 2 - 1));
@@ -222,6 +246,9 @@ async function boot(): Promise<void> {
     cam.resize(app.clientWidth, app.clientHeight);
   };
   window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', () => setTimeout(resize, 200));
+  // iOS Safari のページ拡大（ピンチ）を止める。ピンチは地図ではなくカメラの拡大縮小に使う。
+  for (const ev of ['gesturestart', 'gesturechange']) document.addEventListener(ev, (e) => e.preventDefault());
 
   const perf = new Perf(stage.renderer, () => ({
     sim_t: sim.time,
@@ -229,6 +256,7 @@ async function boot(): Promise<void> {
     scale: timeScale,
     eye: eyeOn ? 1 : 0,
   }));
+  perf.profile = prof.name;
   perf.onUpdate = () => ui.setPerf(perf.fps, perf.avgMs, perf.draws, perf.tris);
 
   (window as unknown as Record<string, unknown>).__flytown = { sim, perf, stage, cam, actors, select, setEye, manual, hub, THREE, items, inject, modes };

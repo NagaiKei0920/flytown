@@ -20,6 +20,7 @@ const PLUME_WARM_S = 40; // 匂いが定常になるまでの時間（脳なし�
 const ODOR_TEST_S = 60;
 const HEAT_TEST_S = 30;
 const LOOM_TEST_S = 10;
+const TOWN_TEST_S = 60;
 const START_DIST = 6; // 発生源から風下へ
 const NEAR = 2; // 「近づいた」とみなす距離
 const ZONE = 6; // ヒーターの暖かい範囲の半径
@@ -185,6 +186,28 @@ async function workerMain() {
     return { escaped: escapeAt >= 0, escapeAt, maxFlap, hit: hitAt >= 0, hitAt, minCar: job.car ? minCar : null, forwardAtEscape };
   }
 
+  /** 実際の街（ハエ人 4 体、NPC 20、車 15）を歩かせ、羽ばたき指令 > 0.5 の時間割合を測る。静かな時 = 車が 30 m 以内にいず、NPC・他のハエ人が 8 m 以内にいない。 */
+  function town(job) {
+    const sim = new Sim({ seed: 20261029 + job.seed, flyCount: 4, npcCount: 20, carCount: 15 });
+    sim.flies.forEach((f, i) => sim.attachBrain(i, new SyncBrain(5000 + 100 * job.seed + i)));
+    run(sim, 5);
+    let all = 0, allFlap = 0, q = 0, qFlap = 0, flapSum = 0;
+    for (let i = 0; i < TOWN_TEST_S * 50; i++) {
+      sim.step();
+      for (const f of sim.flies) {
+        if (f.down) continue;
+        let nc = Infinity, nn = Infinity;
+        for (const c of sim.cars) nc = Math.min(nc, Math.hypot(c.x - f.x, c.z - f.z));
+        for (const n of sim.npcs) nn = Math.min(nn, Math.hypot(n.x - f.x, n.z - f.z));
+        for (const o of sim.flies) if (o !== f) nn = Math.min(nn, Math.hypot(o.x - f.x, o.z - f.z));
+        const fl = f.cmd.flap > 0.5;
+        all++; flapSum += f.cmd.flap; if (fl) allFlap++;
+        if (nc > 30 && nn > 8) { q++; if (fl) qFlap++; }
+      }
+    }
+    return { all, allFlap, q, qFlap, flapMean: flapSum / Math.max(1, all) };
+  }
+
   function learn(job) {
     const S = siteOf(job.seed);
     const R = sites[(job.seed + 1) % sites.length]; // 休む場所（別の中立地点）
@@ -227,7 +250,7 @@ async function workerMain() {
     const t0 = performance.now();
     let r;
     try {
-      r = job.exp === 'odor' ? odor(job) : job.exp === 'heat' ? heat(job) : job.exp === 'loom' ? loom(job) : learn(job);
+      r = job.exp === 'odor' ? odor(job) : job.exp === 'heat' ? heat(job) : job.exp === 'loom' ? loom(job) : job.exp === 'town' ? town(job) : learn(job);
     } catch (e) {
       r = { error: String(e?.stack ?? e) };
     }
@@ -256,7 +279,8 @@ async function mainThread() {
   const arg = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
   const nSeeds = Number(arg('--seeds', 20));
   const nWorkers = Number(arg('--workers', Math.min(3, Math.max(1, os.cpus().length - 4))));
-  const write = !args.includes('--no-write');
+  const only = arg('--only', null); // 'loom' など。指定すると全体の報告は書かず、その項目だけ出す
+  const write = !args.includes('--no-write') && !only;
 
   const jobs = [];
   for (let s = 0; s < nSeeds; s++) {
@@ -269,6 +293,8 @@ async function mainThread() {
     jobs.push({ exp: 'heat', src: 'heater', seed: s }, { exp: 'heat', src: 'none', seed: s });
     jobs.push({ exp: 'loom', car: true, seed: s }, { exp: 'loom', car: false, seed: s });
   }
+  for (let s = 0; s < nSeeds; s++) jobs.push({ exp: 'town', seed: s });
+  if (only) { const keep = jobs.filter((j) => j.exp === only); jobs.length = 0; jobs.push(...keep); }
   const results = [];
   let next = 0, done = 0, sitesInfo = null;
   const t0 = performance.now();
@@ -396,6 +422,24 @@ async function mainThread() {
   out(`- 前の計測は同じシードなら同じはず: 対提示と非対提示の「前」が全シードで一致 -> ${preEq ? '一致（決定的）' : '不一致（再現性に問題あり）'}。`);
   out();
 
+  // --- 街を歩く（羽ばたきの出しすぎ）
+  out('## 5. 街を歩くときの羽ばたき（ハエ人 4 体、NPC 20、車 15、' + TOWN_TEST_S + ' s、暖機 5 s）');
+  out();
+  out('羽ばたき指令 > 0.5 の時間割合。静かな時 = 車が 30 m 以内にいず、NPC・他のハエ人が 8 m 以内にいない時。基準: 静かな時に 5% 未満。');
+  out();
+  out('| 条件 | tick 数（ハエ人 x 20 ms） | 羽ばたき > 0.5 の割合 | 平均の羽ばたき指令 |');
+  out('|---|---|---|---|');
+  const tw = pick((x) => x.exp === 'town');
+  const sum = (k) => tw.reduce((a, x) => a + x[k], 0);
+  const allFrac = sum('allFlap') / Math.max(1, sum('all'));
+  const qFrac = sum('qFlap') / Math.max(1, sum('q'));
+  out(`| 全時間 | ${sum('all')} | ${pct(allFrac)}（95% CI ${wilson(sum('allFlap'), sum('all')).map(pct).join('-')}） | ${(tw.reduce((a, x) => a + x.flapMean * x.all, 0) / Math.max(1, sum('all'))).toFixed(3)} |`);
+  out(`| 静かな時 | ${sum('q')} | ${pct(qFrac)}（95% CI ${wilson(sum('qFlap'), sum('q')).map(pct).join('-')}） | - |`);
+  out();
+  const okTown = qFrac < 0.05;
+  out(`- 静かな時に 5% 未満 -> ${okTown ? '合' : '否'}（${(100 * qFrac).toFixed(1)}%）。`);
+  out();
+
   out('## 要約');
   out();
   out('| 項目 | 結果 | 基準 | 合否 |');
@@ -405,6 +449,7 @@ async function mainThread() {
   out(`| 熱の回避 | 滞在 ${mean(hh.map((x) => x.dwell)).toFixed(1)} s（対照 ${mean(hc.map((x) => x.dwell)).toFixed(1)} s） | 対照より短い | ${okHeat ? '合' : '否'} |`);
   out(`| 車からの逃避 | ${pct(esc(lc).length / Math.max(1, lc.length))}（対照 ${pct(esc(l0).length / Math.max(1, l0.length))}） | 対照より高い | ${okLoom ? '合' : '否'} |`);
   out(`| 学習 | ${diff.toFixed(0)} 点 | +20 点以上 | ${diff >= 20 ? '合' : '否'} |`);
+  out(`| 街歩きの羽ばたき（静かな時 > 0.5） | ${(100 * qFrac).toFixed(1)}%（全時間 ${(100 * allFrac).toFixed(1)}%） | 5% 未満 | ${okTown ? '合' : '否'} |`);
   out();
   out('## 限界');
   out();
@@ -415,11 +460,15 @@ async function mainThread() {
   out();
 
   if (write) {
-    writeFileSync(path.join(root, 'docs/reports/m5_behavior.md'), lines.join('\n') + '\n');
+    // 手で書いた履歴（旧エンコードの結果）は消さない。見出し「# 履歴」以降を引き継ぐ。
+    const rp = path.join(root, 'docs/reports/m5_behavior.md');
+    let hist = '';
+    try { const old = readFileSync(rp, 'utf8'); const i = old.indexOf('\n# 履歴'); if (i >= 0) hist = old.slice(i + 1); } catch { /* 無ければ空 */ }
+    writeFileSync(rp, lines.join('\n') + '\n' + (hist ? '\n' + hist : ''));
     console.error('wrote docs/reports/m5_behavior.md');
   }
   writeFileSync(path.join(root, 'data', 'behavior_raw.json'), JSON.stringify(results));
 }
 
-if (isMainThread) await mainThread();
+if (isMainThread) { await mainThread(); process.exit(0); }
 else { void workerData; await workerMain(); }

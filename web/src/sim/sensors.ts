@@ -20,6 +20,12 @@ export interface RayHit {
   /** looming 量（1/s）= max(0, approach) / max(distance, 0.5)。像の拡大率の近似。光学流の詳細計算はしない。 */
   looming: number;
   kind: HitKind;
+  /** 当たった物の見かけの幅（m）。視線に直交する向きの輪郭の幅（車・箱は向きで変わる）。何もなければ 0。 */
+  width: number;
+  /** 当たった物の見かけの角度の大きさ（rad）= 2 atan(width / 2 distance)。何もなければ 0。 */
+  size: number;
+  /** 角度の大きさの増える速さ（rad/s）= d(size)/dt の正の部分 = width * approach / (distance^2 + width^2 / 4)。像の拡大。何もなければ 0。 */
+  expansion: number;
 }
 
 /** 片目 12 本のレイ。 */
